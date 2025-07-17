@@ -209,7 +209,7 @@ app.post('/query', async (req, res) => {
     }
 
     // --- 3) The actual retrieve call
-    if (method === 'retrieve') {
+    if (method === 'retrieve' || params.name === 'retrieve') {
       const docs = await retrieveFromYourIndex(params.query);
       return res.json({
         jsonrpc: '2.0',
