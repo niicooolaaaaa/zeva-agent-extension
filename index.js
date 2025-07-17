@@ -156,6 +156,8 @@ app.post('/agent', async (req, res) => {
 app.post('/query', async (req, res) => {
   const { jsonrpc, id, method, params } = req.body;
 
+  console.log(req.body)
+
   // 1) Initialization request
   if (method === 'initialize') {
     return res.json({
