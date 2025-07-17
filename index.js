@@ -87,7 +87,7 @@ app.get('/', (req, res) => {
 });
 
 // Agent endpoint: proxy to Copilot with injected context
-app.post('/', async (req, res) => {
+app.post('/agent', async (req, res) => {
   const token = req.cookies['github_token'] || req.get('X-GitHub-Token');
   if (!token) {
     return res.status(401).send('Unauthorized: missing GitHub token. Please authenticate at /auth/authorization');
