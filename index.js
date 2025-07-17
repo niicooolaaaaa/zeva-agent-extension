@@ -3,96 +3,145 @@ import express from "express";
 import { Readable } from "node:stream";
 import fs from "fs";
 import path from "path";
+import cookieParser from "cookie-parser";
+import fetch from "node-fetch";
 
-const app = express();
+// Load environment variables
+const {
+  CLIENT_ID,
+  CLIENT_SECRET,
+  FQDN,
+  PROJECT_CONTEXT,
+  PROJECT_CONTEXT_PATH,
+  PORT = 3000
+} = process.env;
 
-// Load project context from environment or optional markdown file
-const PROJECT_CONTEXT = process.env.PROJECT_CONTEXT || (() => {
-  const ctxPath = process.env.PROJECT_CONTEXT_PATH;
-  if (ctxPath && fs.existsSync(ctxPath)) {
-    return fs.readFileSync(path.resolve(ctxPath), "utf8");
+if (!CLIENT_ID || !CLIENT_SECRET || !FQDN) {
+  console.error("Missing required env vars: CLIENT_ID, CLIENT_SECRET, or FQDN");
+  process.exit(1);
+}
+
+// Load project context
+function loadProjectContext() {
+  if (PROJECT_CONTEXT) return PROJECT_CONTEXT;
+  if (PROJECT_CONTEXT_PATH && fs.existsSync(PROJECT_CONTEXT_PATH)) {
+    return fs.readFileSync(path.resolve(PROJECT_CONTEXT_PATH), "utf8");
   }
-  // Fallback default context
   return `Project "Apollo"
 • Stack: Go, PostgreSQL, Redis
 • Domain: payments processing
 • Goal: 99.9% uptime and sub-second latency`;
-})();
+}
+const CONTEXT = loadProjectContext();
 
-app.get("/", (req, res) => {
-  res.send("Welcome to your custom Copilot Extension with project context!");
+const app = express();
+app.use(express.json());
+app.use(cookieParser());
+
+// OAuth: redirect users to GitHub to authenticate
+app.get('/auth/authorization', (req, res) => {
+  const state = Math.random().toString(36).substring(2, 15);
+  res.cookie('oauth_state', state, { httpOnly: true, sameSite: 'lax' });
+  const params = new URLSearchParams({
+    client_id: CLIENT_ID,
+    redirect_uri: `${FQDN}/auth/callback`,
+    state,
+    scope: 'repo'
+  });
+  res.redirect(`https://github.com/login/oauth/authorize?${params}`);
 });
 
-app.post("/", express.json(), async (req, res) => {
-  const token = req.get("X-GitHub-Token");
-  if (!token) {
-    return res.status(401).send("Missing GitHub token header");
+// OAuth callback: exchange code for access token
+app.get('/auth/callback', async (req, res) => {
+  const { code, state } = req.query;
+  const savedState = req.cookies['oauth_state'];
+  if (!code || !state || state !== savedState) {
+    return res.status(400).send('Invalid OAuth state or missing code');
   }
 
-  // Identify the user via GitHub API
+  try {
+    const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: { 'Accept': 'application/json' },
+      body: new URLSearchParams({
+        client_id: CLIENT_ID,
+        client_secret: CLIENT_SECRET,
+        code: code.toString(),
+        redirect_uri: `${FQDN}/auth/callback`,
+        state: state.toString()
+      })
+    });
+    const { access_token, error } = await tokenRes.json();
+    if (error || !access_token) throw new Error(error || 'No access token');
+    res.cookie('github_token', access_token, { httpOnly: true, sameSite: 'lax' });
+    res.redirect('/');
+  } catch (err) {
+    console.error('OAuth token exchange failed', err);
+    res.status(500).send('Authentication failed');
+  }
+});
+
+// Health check
+app.get('/', (req, res) => {
+  res.send('Welcome! To start, authenticate at /auth/authorization');
+});
+
+// Agent endpoint: proxy to Copilot with injected context
+app.post('/', async (req, res) => {
+  const token = req.cookies['github_token'] || req.get('X-GitHub-Token');
+  if (!token) {
+    return res.status(401).send('Unauthorized: missing GitHub token. Please authenticate at /auth/authorization');
+  }
+
+  // Identify user
   let login;
   try {
     const octokit = new Octokit({ auth: token });
-    const { data } = await octokit.request("GET /user");
+    const { data } = await octokit.request('GET /user');
     login = data.login;
     console.log(`User: @${login}`);
   } catch (err) {
-    console.error("Invalid token or GitHub API error", err);
-    return res.status(401).send("Invalid GitHub token");
+    console.error('Invalid GitHub token', err);
+    return res.status(401).send('Invalid GitHub token');
   }
 
-  // Prepare custom system prompts
+  // Prepare system prompts
   const systemPrompts = [
-    {
-      role: "system",
-      content: `Start every response with the user's handle: @${login}.`
-    },
-    {
-      role: "system",
-      content: "You are an expert assistant specializing in distributed systems and payments processing."
-    },
-    {
-      role: "system",
-      content: `Project-specific context:\n${PROJECT_CONTEXT.trim()}`
-    }
+    { role: 'system', content: `Start every response with: @${login}` },
+    { role: 'system', content: 'You are an expert assistant specializing in distributed systems and payments processing.' },
+    { role: 'system', content: `Project-specific context:\n${CONTEXT.trim()}` }
   ];
 
-  // Merge custom prompts with the incoming messages
-  const inbound = req.body;
-  if (!Array.isArray(inbound.messages)) {
-    return res.status(400).send("Invalid payload: messages array missing");
+  // Validate payload
+  const { messages } = req.body;
+  if (!Array.isArray(messages)) {
+    return res.status(400).send('Invalid payload: messages array missing');
   }
 
-  const outbound = {
-    stream: true,
-    messages: [
-      ...systemPrompts,
-      ...inbound.messages
-    ]
-  };
+  // Build outbound request
+  const outbound = { stream: true, messages: [...systemPrompts, ...messages] };
 
-  // Proxy the request to GitHub Copilot Chat API
-  const apiRes = await fetch(
-    "https://api.githubcopilot.com/chat/completions",
-    {
-      method: "POST",
+  // Proxy to Copilot Chat API
+  try {
+    const apiRes = await fetch('https://api.githubcopilot.com/chat/completions', {
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`
       },
       body: JSON.stringify(outbound)
-    }
-  );
+    });
 
-  // Stream Copilot's SSE response back to the client
-  res.writeHead(apiRes.status, {
-    'Content-Type': 'text/event-stream',
-    ...Object.fromEntries(apiRes.headers)
-  });
-  Readable.from(apiRes.body).pipe(res);
+    // Stream SSE
+    res.writeHead(apiRes.status, {
+      'Content-Type': 'text/event-stream',
+      ...Object.fromEntries(apiRes.headers)
+    });
+    Readable.from(apiRes.body).pipe(res);
+  } catch (err) {
+    console.error('Error proxying to Copilot API', err);
+    res.status(500).send('Internal server error');
+  }
 });
 
-const port = Number(process.env.PORT || '3000');
-app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
-});
+app.listen(PORT, () => console.log(`Server running at http://localhost:${PORT}`));
