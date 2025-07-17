@@ -1,0 +1,33 @@
+name: zeva-agent-extension
+version: 1.0.0
+app_type: Agent
+# Define your OAuth and agent routes
+routes:
+  authorization: /auth/authorization
+  callback: /auth/callback
+  agent: /agent
+# Expose client inputs so Copilot UI will send them in the payload
+inputs:
+  - name: model
+    type: string
+    description: "The model selected by the user (e.g. gpt-4, gpt-3.5-turbo)"
+    required: false
+    default: gpt-4
+  - name: temperature
+    type: number
+    description: "Sampling temperature"
+    required: false
+    default: 0
+  - name: top_p
+    type: number
+    description: "Nucleus sampling probability"
+    required: false
+    default: 1.0
+  - name: max_tokens
+    type: integer
+    description: "Maximum tokens to generate"
+    required: false
+    default: 512
+# Optionally, list permissions your app needs
+permissions:
+  contents: read
