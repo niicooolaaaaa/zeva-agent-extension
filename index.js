@@ -154,31 +154,65 @@ app.post('/agent', async (req, res) => {
 });
 
 app.post('/query', async (req, res) => {
-  const { id, method, params } = req.body;
-  if (method !== 'retrieve') {
+  const { jsonrpc, id, method, params } = req.body;
+
+  // 1) Initialization request
+  if (method === 'initialize') {
     return res.json({
       jsonrpc: '2.0',
       id,
-      error: { code: -32601, message: 'Method not found' }
+      result: {
+        protocolVersion: '2025-03-26',
+        capabilities: {
+          // tell Copilot which features you support
+          resources:    { listChanged: false, subscribe: false },
+          prompts:      { listChanged: false },
+          tools:        { listChanged: false },
+          logging:      {},
+        },
+        serverInfo: {
+          name:    'zeva-mcp-server',
+          version: '1.0.0',
+        },
+        // instructions is optional
+      }
     });
   }
 
-  // your existing RAG retrieval logic:
-  const docs = await retrieveFromYourIndex(params.query);
+  // 2) Client notification that it’s ready
+  if (method === 'notifications/initialized') {
+    // JSON-RPC notifications must not send a response body
+    return res.status(204).end();
+  }
 
-  // format into MCP response:
-  res.json({
+  // 3) Actual retrieval calls
+  if (method === 'retrieve') {
+    const query = params.query;
+    const docs = await retrieveFromYourIndex(query);
+    return res.json({
+      jsonrpc: '2.0',
+      id,
+      result: {
+        documents: docs.map((d, i) => ({
+          id:       d.id ?? `${i}`,
+          cursor:   d.cursor ?? `${i}`,
+          text:     d.text,
+          metadata: d.metadata ?? {}
+        }))
+      }
+    });
+  }
+
+  // 4) Any other method is unknown
+  return res.json({
     jsonrpc: '2.0',
     id,
-    result: {
-      documents: docs.map((d, i) => ({
-        id: d.id || `${i}`,
-        cursor: d.cursor || `${i}`,
-        text: d.text,
-        metadata: d.metadata || {}
-      }))
+    error: {
+      code:    -32601,
+      message: `Method not found: ${method}`
     }
   });
 });
+
 
 app.listen(PORT, () => console.log(`Server running at http://localhost:${PORT}`));
