@@ -166,10 +166,10 @@ app.post('/query', async (req, res) => {
       result: {
         protocolVersion: '2025-03-26',
         capabilities: {
-          resources:    { listChanged: false, subscribe: false },
-          prompts:      { listChanged: false },
-          tools:        { listChanged: false },
-          logging:      {}
+          resources: { listChanged: false, subscribe: false },
+          prompts: { listChanged: false },
+          tools: { listChanged: false },
+          logging: {}
         },
         serverInfo: { name: 'zeva-mcp-server', version: '1.0.0' }
       }
@@ -188,12 +188,15 @@ app.post('/query', async (req, res) => {
         tools: [
           {
             id: 'retrieve',
-            name: 'Context Retrieval',
+            name: 'retrieve',            // ← no spaces
             description: 'Fetch relevant context snippets for the user’s query',
             parameters: {
               type: 'object',
               properties: {
-                query: { type: 'string', description: 'User question to retrieve context for' }
+                query: {
+                  type: 'string',
+                  description: 'User question to retrieve context for'
+                }
               },
               required: ['query']
             }
@@ -210,10 +213,10 @@ app.post('/query', async (req, res) => {
       jsonrpc: '2.0',
       id,
       result: {
-        documents: docs.map((d,i) => ({
-          id:       d.id   ?? `${i}`,
-          cursor:   d.cursor ?? `${i}`,
-          text:     d.text,
+        documents: docs.map((d, i) => ({
+          id: d.id ?? `${i}`,
+          cursor: d.cursor ?? `${i}`,
+          text: d.text,
           metadata: d.metadata ?? {}
         }))
       }
