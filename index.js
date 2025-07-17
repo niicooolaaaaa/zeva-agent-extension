@@ -158,7 +158,7 @@ app.post('/query', async (req, res) => {
 
   console.log(req.body)
 
-  // 1) Initialization request
+  // --- 1) Handshake
   if (method === 'initialize') {
     return res.json({
       jsonrpc: '2.0',
@@ -166,37 +166,52 @@ app.post('/query', async (req, res) => {
       result: {
         protocolVersion: '2025-03-26',
         capabilities: {
-          // tell Copilot which features you support
           resources:    { listChanged: false, subscribe: false },
           prompts:      { listChanged: false },
           tools:        { listChanged: false },
-          logging:      {},
+          logging:      {}
         },
-        serverInfo: {
-          name:    'zeva-mcp-server',
-          version: '1.0.0',
-        },
-        // instructions is optional
+        serverInfo: { name: 'zeva-mcp-server', version: '1.0.0' }
       }
     });
   }
-
-  // 2) Client notification that it’s ready
   if (method === 'notifications/initialized') {
-    // JSON-RPC notifications must not send a response body
     return res.status(204).end();
   }
 
-  // 3) Actual retrieval calls
-  if (method === 'retrieve') {
-    const query = params.query;
-    const docs = await retrieveFromYourIndex(query);
+  // --- 2) Tool discovery
+  if (method === 'tools/list') {
     return res.json({
       jsonrpc: '2.0',
       id,
       result: {
-        documents: docs.map((d, i) => ({
-          id:       d.id ?? `${i}`,
+        tools: [
+          {
+            id: 'retrieve',
+            name: 'Context Retrieval',
+            description: 'Fetch relevant context snippets for the user’s query',
+            parameters: {
+              type: 'object',
+              properties: {
+                query: { type: 'string', description: 'User question to retrieve context for' }
+              },
+              required: ['query']
+            }
+          }
+        ]
+      }
+    });
+  }
+
+  // --- 3) The actual retrieve call
+  if (method === 'retrieve') {
+    const docs = await retrieveFromYourIndex(params.query);
+    return res.json({
+      jsonrpc: '2.0',
+      id,
+      result: {
+        documents: docs.map((d,i) => ({
+          id:       d.id   ?? `${i}`,
           cursor:   d.cursor ?? `${i}`,
           text:     d.text,
           metadata: d.metadata ?? {}
@@ -205,16 +220,12 @@ app.post('/query', async (req, res) => {
     });
   }
 
-  // 4) Any other method is unknown
+  // --- 4) Unknown method
   return res.json({
     jsonrpc: '2.0',
     id,
-    error: {
-      code:    -32601,
-      message: `Method not found: ${method}`
-    }
+    error: { code: -32601, message: `Method not found: ${method}` }
   });
 });
-
 
 app.listen(PORT, () => console.log(`Server running at http://localhost:${PORT}`));
