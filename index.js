@@ -87,7 +87,7 @@ app.get('/', (req, res) => {
   res.send('Welcome! To start, authenticate at /auth/authorization');
 });
 
-// Agent endpoint: proxy to Copilot with injected context
+// Agent endpoint: proxy to Copilot with injected context and dynamic model
 app.post('/agent', async (req, res) => {
   const token = req.cookies['github_token'] || req.get('X-GitHub-Token');
   if (!token) {
@@ -106,15 +106,16 @@ app.post('/agent', async (req, res) => {
     return res.status(401).send('Invalid GitHub token');
   }
 
-  // Extract messages and optional model from payload
-  const { messages, model } = req.body;
+  console.log(req);
+
+  // Extract messages and model info from payload
+  const { messages, model, config } = req.body;
   if (!Array.isArray(messages)) {
     return res.status(400).send('Invalid payload: messages array missing');
   }
 
-  // Determine which model to use (from request or default)
-  const selectedModel = model || DEFAULT_MODEL;
-  console.log(selectedModel);
+  // Determine which model to use: check body.model first, then config.model, else default
+  const selectedModel = model || (config && config.model) || DEFAULT_MODEL;
 
   // Prepare system prompts
   const systemPrompts = [
@@ -123,7 +124,7 @@ app.post('/agent', async (req, res) => {
     { role: 'system', content: `Project-specific context:\n${CONTEXT.trim()}` }
   ];
 
-  // Build outbound request including model
+  // Build outbound request including dynamic model
   const outbound = {
     model: selectedModel,
     stream: true,
