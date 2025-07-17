@@ -237,8 +237,12 @@ app.post('/query', async (req, res) => {
 });
 
 async function retrieveFromYourIndex(query) {
-  console.log(query);
-  return CONTEXT;
+  return [{
+    id:       'apollo-payments-service',
+    cursor:   'apollo-payments-service',
+    text:     CONTEXT,
+    metadata: { source: 'apollo-payments-service.md' }
+  }];
 }
 
 app.listen(PORT, () => console.log(`Server running at http://localhost:${PORT}`));
