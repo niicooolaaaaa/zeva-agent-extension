@@ -106,16 +106,14 @@ app.post('/agent', async (req, res) => {
     return res.status(401).send('Invalid GitHub token');
   }
 
-  console.log(req);
-
-  // Extract messages and model info from payload
-  const { messages, model, config } = req.body;
+  // Extract messages and config from payload
+  const { messages, model: bodyModel, config } = req.body;
   if (!Array.isArray(messages)) {
     return res.status(400).send('Invalid payload: messages array missing');
   }
 
-  // Determine which model to use: check body.model first, then config.model, else default
-  const selectedModel = model || (config && config.model) || DEFAULT_MODEL;
+  // Determine which model to use: prioritize body.model, then config.model, then default
+  const selectedModel = bodyModel?.trim() || config?.model?.trim() || DEFAULT_MODEL;
 
   // Prepare system prompts
   const systemPrompts = [
@@ -124,8 +122,9 @@ app.post('/agent', async (req, res) => {
     { role: 'system', content: `Project-specific context:\n${CONTEXT.trim()}` }
   ];
 
-  // Build outbound request including dynamic model
+  // Build outbound request preserving all client-provided fields, but override messages, model, and stream
   const outbound = {
+    ...req.body,
     model: selectedModel,
     stream: true,
     messages: [...systemPrompts, ...messages]
@@ -152,6 +151,34 @@ app.post('/agent', async (req, res) => {
     console.error('Error proxying to Copilot API', err);
     res.status(500).send('Internal server error');
   }
+});
+
+app.post('/query', async (req, res) => {
+  const { id, method, params } = req.body;
+  if (method !== 'retrieve') {
+    return res.json({
+      jsonrpc: '2.0',
+      id,
+      error: { code: -32601, message: 'Method not found' }
+    });
+  }
+
+  // your existing RAG retrieval logic:
+  const docs = await retrieveFromYourIndex(params.query);
+
+  // format into MCP response:
+  res.json({
+    jsonrpc: '2.0',
+    id,
+    result: {
+      documents: docs.map((d, i) => ({
+        id: d.id || `${i}`,
+        cursor: d.cursor || `${i}`,
+        text: d.text,
+        metadata: d.metadata || {}
+      }))
+    }
+  });
 });
 
 app.listen(PORT, () => console.log(`Server running at http://localhost:${PORT}`));
