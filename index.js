@@ -211,7 +211,7 @@ app.post('/query', async (req, res) => {
     // --- 3) The actual retrieve call
     if (method === 'retrieve' || params.name === 'retrieve') {
       const docs = await retrieveFromYourIndex(params.query);
-      return res.json({
+      const result = {
         jsonrpc: '2.0',
         id,
         result: {
@@ -222,7 +222,11 @@ app.post('/query', async (req, res) => {
             metadata: d.metadata ?? {}
           }))
         }
-      });
+      };
+
+      console.log(result)
+      
+      return res.json(result);
     }
 
     // --- 4) Unknown method
