@@ -154,81 +154,91 @@ app.post('/agent', async (req, res) => {
 });
 
 app.post('/query', async (req, res) => {
-  const { jsonrpc, id, method, params } = req.body;
+  try {
 
-  console.log(req.body)
+    const { jsonrpc, id, method, params } = req.body;
 
-  // --- 1) Handshake
-  if (method === 'initialize') {
-    return res.json({
-      jsonrpc: '2.0',
-      id,
-      result: {
-        protocolVersion: '2025-03-26',
-        capabilities: {
-          resources: { listChanged: false, subscribe: false },
-          prompts: { listChanged: false },
-          tools: { listChanged: false },
-          logging: {}
-        },
-        serverInfo: { name: 'zeva-mcp-server', version: '1.0.0' }
-      }
-    });
-  }
-  if (method === 'notifications/initialized') {
-    return res.status(204).end();
-  }
+    console.log(req.body)
 
-  // --- 2) Tool discovery
-  if (method === 'tools/list') {
-    return res.json({
-      jsonrpc: '2.0',
-      id,
-      result: {
-        tools: [
-          {
-            id: 'retrieve',
-            name: 'retrieve',            // ← no spaces
-            description: 'Fetch relevant context snippets for the user’s query',
-            parameters: {
-              type: 'object',
-              properties: {
-                query: {
-                  type: 'string',
-                  description: 'User question to retrieve context for'
-                }
-              },
-              required: ['query']
+    // --- 1) Handshake
+    if (method === 'initialize') {
+      return res.json({
+        jsonrpc: '2.0',
+        id,
+        result: {
+          protocolVersion: '2025-03-26',
+          capabilities: {
+            resources: { listChanged: false, subscribe: false },
+            prompts: { listChanged: false },
+            tools: { listChanged: false },
+            logging: {}
+          },
+          serverInfo: { name: 'zeva-mcp-server', version: '1.0.0' }
+        }
+      });
+    }
+    if (method === 'notifications/initialized') {
+      return res.status(204).end();
+    }
+
+    // --- 2) Tool discovery
+    if (method === 'tools/list') {
+      return res.json({
+        jsonrpc: '2.0',
+        id,
+        result: {
+          tools: [
+            {
+              id: 'retrieve',
+              name: 'retrieve',            // ← no spaces
+              description: 'Fetch relevant context snippets for the user’s query',
+              parameters: {
+                type: 'object',
+                properties: {
+                  query: {
+                    type: 'string',
+                    description: 'User question to retrieve context for'
+                  }
+                },
+                required: ['query']
+              }
             }
-          }
-        ]
-      }
-    });
-  }
+          ]
+        }
+      });
+    }
 
-  // --- 3) The actual retrieve call
-  if (method === 'retrieve') {
-    const docs = await retrieveFromYourIndex(params.query);
+    // --- 3) The actual retrieve call
+    if (method === 'retrieve') {
+      const docs = await retrieveFromYourIndex(params.query);
+      return res.json({
+        jsonrpc: '2.0',
+        id,
+        result: {
+          documents: docs.map((d, i) => ({
+            id: d.id ?? `${i}`,
+            cursor: d.cursor ?? `${i}`,
+            text: d.text,
+            metadata: d.metadata ?? {}
+          }))
+        }
+      });
+    }
+
+    // --- 4) Unknown method
     return res.json({
       jsonrpc: '2.0',
       id,
-      result: {
-        documents: docs.map((d, i) => ({
-          id: d.id ?? `${i}`,
-          cursor: d.cursor ?? `${i}`,
-          text: d.text,
-          metadata: d.metadata ?? {}
-        }))
-      }
+      error: { code: -32601, message: `Method not found: ${method}` }
     });
+  } catch (error) {
+    console.error(error);
   }
-
-  // --- 4) Unknown method
-  return res.json({
-    jsonrpc: '2.0',
-    id,
-    error: { code: -32601, message: `Method not found: ${method}` }
-  });
 });
+
+async function retrieveFromYourIndex(query) {
+  console.log(query);
+  return CONTEXT;
+}
 
 app.listen(PORT, () => console.log(`Server running at http://localhost:${PORT}`));
