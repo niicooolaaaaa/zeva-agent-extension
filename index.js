@@ -13,6 +13,7 @@ const {
   FQDN,
   PROJECT_CONTEXT,
   PROJECT_CONTEXT_PATH,
+  DEFAULT_MODEL = 'gpt-4',
   PORT = 3000
 } = process.env;
 
@@ -105,6 +106,16 @@ app.post('/agent', async (req, res) => {
     return res.status(401).send('Invalid GitHub token');
   }
 
+  // Extract messages and optional model from payload
+  const { messages, model } = req.body;
+  if (!Array.isArray(messages)) {
+    return res.status(400).send('Invalid payload: messages array missing');
+  }
+
+  // Determine which model to use (from request or default)
+  const selectedModel = model || DEFAULT_MODEL;
+  console.log(selectedModel);
+
   // Prepare system prompts
   const systemPrompts = [
     { role: 'system', content: `Start every response with: @${login}` },
@@ -112,14 +123,12 @@ app.post('/agent', async (req, res) => {
     { role: 'system', content: `Project-specific context:\n${CONTEXT.trim()}` }
   ];
 
-  // Validate payload
-  const { messages } = req.body;
-  if (!Array.isArray(messages)) {
-    return res.status(400).send('Invalid payload: messages array missing');
-  }
-
-  // Build outbound request
-  const outbound = { stream: true, messages: [...systemPrompts, ...messages] };
+  // Build outbound request including model
+  const outbound = {
+    model: selectedModel,
+    stream: true,
+    messages: [...systemPrompts, ...messages]
+  };
 
   // Proxy to Copilot Chat API
   try {
